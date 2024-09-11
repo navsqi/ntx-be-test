@@ -1,120 +1,192 @@
-const db = require("../models");
-// const Model = db.Model;
 const { Op, QueryTypes } = require("sequelize");
+const db = require("../models");
+const surveyRepository = require("../repositories/surveyRepository");
+const userRepository = require("../repositories/userRepository");
+const wss = require("../config/wss");
+const liveThreatConnector = require("../connector/liveThreatConnector");
+const threatMapRepository = require("../repositories/threatMapRepository");
+const { sha256 } = require("../utils/hash");
+const tokenService = require("../services/tokenServices");
 
-exports.refactoreMe1 = (req, res) => {
+exports.refactoreMe1 = async (req, res) => {
   // function ini sebenarnya adalah hasil survey dri beberapa pertnayaan, yang mana nilai dri jawaban tsb akan di store pada array seperti yang ada di dataset
-  db.sequelize
-    .query(`select * from "surveys"`, { type: QueryTypes.SELECT })
-    .then((data) => {
-      let index1 = [];
-      let index2 = [];
-      let index3 = [];
-      let index4 = [];
-      let index5 = [];
-      let index6 = [];
-      let index7 = [];
-      let index8 = [];
-      let index9 = [];
-      let index10 = [];
+  try {
+    const surveys = await surveyRepository.findAll();
 
-      data.map((e) => {
-        let values1 = e.values[0];
-        let values2 = e.values[1];
-        let values3 = e.values[2];
-        let values4 = e.values[3];
-        let values5 = e.values[4];
-        let values6 = e.values[5];
-        let values7 = e.values[6];
-        let values8 = e.values[7];
-        let values9 = e.values[8];
-        let values10 = e.values[9];
+    // create array of 10 index & empty array elements
+    const index = Array.from({ length: 10 }, () => []);
 
-        index1.push(values1);
-        index2.push(values2);
-        index3.push(values3);
-        index4.push(values4);
-        index5.push(values5);
-        index6.push(values6);
-        index7.push(values7);
-        index8.push(values8);
-        index9.push(values9);
-        index10.push(values10);
-      });
-
-      let totalIndex1 = index1.reduce((a, b) => a + b, 0) / 10;
-      let totalIndex2 = index2.reduce((a, b) => a + b, 0) / 10;
-      let totalIndex3 = index3.reduce((a, b) => a + b, 0) / 10;
-      let totalIndex4 = index4.reduce((a, b) => a + b, 0) / 10;
-      let totalIndex5 = index5.reduce((a, b) => a + b, 0) / 10;
-      let totalIndex6 = index6.reduce((a, b) => a + b, 0) / 10;
-      let totalIndex7 = index7.reduce((a, b) => a + b, 0) / 10;
-      let totalIndex8 = index8.reduce((a, b) => a + b, 0) / 10;
-      let totalIndex9 = index9.reduce((a, b) => a + b, 0) / 10;
-      let totalIndex10 = index10.reduce((a, b) => a + b, 0) / 10;
-
-      let totalIndex = [
-        totalIndex1,
-        totalIndex2,
-        totalIndex3,
-        totalIndex4,
-        totalIndex5,
-        totalIndex6,
-        totalIndex7,
-        totalIndex8,
-        totalIndex9,
-        totalIndex10,
-      ];
-
-      res.status(200).send({
-        statusCode: 200,
-        success: true,
-        data: totalIndex,
-      });
-    });
-};
-
-exports.refactoreMe2 = (req, res) => {
-  // function ini untuk menjalakan query sql insert dan mengupdate field "dosurvey" yang ada di table user menjadi true, jika melihat data yang di berikan, salah satu usernnya memiliki dosurvey dengan data false
-  Survey.create({
-    userId: req.body.userId,
-    values: req.body.values, // [] kirim array
-  })
-    .then((data) => {
-      User.update(
-        {
-          dosurvey: true,
-        },
-        {
-          where: { id: req.body.id },
+    // put value n to to index n
+    for (const survey of surveys) {
+      for (const [i, value] of survey.values.entries()) {
+        if (index[i]) {
+          index[i].push(value);
         }
-      )
-        .then(() => {
-          console.log("success");
-        })
-        .catch((err) => console.log(err));
+      }
+    }
 
-      res.status(201).send({
-        statusCode: 201,
-        message: "Survey sent successfully!",
-        success: true,
-        data,
-      });
-    })
-    .catch((err) => {
-      console.log(err);
-      res.status(500).send({
-        statusCode: 500,
-        message: "Cannot post survey.",
-        success: false,
-      });
+    // sum every index n
+    const totalIndex = index.map((arrayOfNumber) => {
+      if (arrayOfNumber.length > 0) {
+        return arrayOfNumber.reduce((a, b) => a + b, 0) / 10;
+      }
+
+      return 0;
     });
+
+    res.status(200).send({
+      statusCode: 200,
+      success: true,
+      data: totalIndex,
+    });
+  } catch (err) {
+    const statusCode = err.statusCode || 500;
+
+    return res.status(statusCode).send({
+      statusCode,
+      success: false,
+      message: err.message || "Something went wrong",
+    });
+  }
 };
 
-exports.callmeWebSocket = (req, res) => {
-  // do something
+exports.refactoreMe2 = async (req, res) => {
+  // function ini untuk menjalakan query sql insert dan mengupdate field "dosurvey" yang ada di table user menjadi true, jika melihat data yang di berikan, salah satu usernnya memiliki dosurvey dengan data false
+  try {
+    // insert data survey
+    const data = await surveyRepository.create(req.body);
+
+    // update user
+    await userRepository.update(req.body.userId);
+
+    res.status(201).send({
+      statusCode: 201,
+      message: "Survey sent successfully!",
+      success: true,
+      data,
+    });
+  } catch (err) {
+    const statusCode = err.statusCode || 500;
+
+    return res.status(statusCode).send({
+      statusCode,
+      success: false,
+      message: err.message || "Something went wrong",
+    });
+  }
 };
 
-exports.getData = (req, res) => {
-  // do something
+exports.callmeWebSocket = (server) => {
+  // handle WebSocket connection: ws://localhost:3000/websocket
+  wss.on("connection", (ws, request) => {
+    console.log("[WEBSOCKET] Client connected via WebSocket");
+
+    // fetch data every 3 minutes (180,000 milliseconds)
+    const intervalId = setInterval(async () => {
+      try {
+        const data = await liveThreatConnector.fetchData();
+        ws.send(JSON.stringify(data.data)); // Send data to the client
+      } catch (err) {
+        console.error("Error fetching data:", err);
+        ws.send(
+          JSON.stringify({ status: false, message: "Failed to fetch data" })
+        );
+      }
+    }, 1 * 60 * 1000); // 3 minutes
+
+    // handle message from client
+    ws.on("message", (message) => {
+      console.log("Received message from client:", message.toString("utf-8"));
+    });
+
+    // cleanup when WebSocket connection is closed
+    ws.on("close", () => {
+      console.log("[WEBSOCKET] Client disconnected");
+      clearInterval(intervalId); // Stop interval when client disconnects
+    });
+  });
+
+  // upgrade HTTP server to WebSocket
+  server.on("upgrade", (request, socket, head) => {
+    wss.handleUpgrade(request, socket, head, (ws) => {
+      wss.emit("connection", ws, request);
+    });
+  });
+};
+
+exports.getData = async (req, res) => {
+  try {
+    // get data from in-memory db (redis)
+    let data = await threatMapRepository.getThreatMapAttackCache();
+
+    // if data not exist, then get data from pg & set cache with TTL
+    if (!data) {
+      data = await threatMapRepository.findAll();
+      await threatMapRepository.setThreatMapAttackCache(data);
+    }
+
+    const sourceResult = data.filter((v) => v.type === "source");
+    const destinationResult = data.filter((v) => v.type === "destination");
+
+    res.status(200).send({
+      success: true,
+      statusCode: 200,
+      data: {
+        label: [
+          ...sourceResult.map((v) => v.country),
+          ...destinationResult.map((v) => v.country),
+        ],
+        total: [
+          ...sourceResult.map((v) => v.count),
+          ...destinationResult.map((v) => v.count),
+        ],
+      },
+    });
+  } catch (err) {
+    const statusCode = err.statusCode || 500;
+
+    return res.status(statusCode).send({
+      statusCode,
+      success: false,
+      message: err.message || "Something went wrong",
+    });
+  }
+};
+
+exports.login = async (req, res) => {
+  try {
+    // get user by username
+    const user = await userRepository.findByUsername(req.body.username);
+    // check password
+    const isLoginValid = user.password === sha256(req.body.password);
+
+    if (!isLoginValid) {
+      return res.status(401).send({
+        statusCode: 401,
+        success: false,
+        message: "Invalid username or password",
+      });
+    }
+
+    // create token
+    const token = await tokenService.createSendToken(user);
+    user.password = undefined;
+
+    return res.status(200).send({
+      statusCode: 200,
+      success: false,
+      data: {
+        token,
+        user,
+      },
+    });
+  } catch (err) {
+    const statusCode = err.statusCode || 500;
+
+    return res.status(statusCode).send({
+      statusCode,
+      success: false,
+      message: err.message || "Something went wrong",
+    });
+  }
 };
